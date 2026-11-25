@@ -1,0 +1,94 @@
+menu "Mesh module SDK"
+
+    config MESH_AO_PRIORITY
+        int "Priority of the module's owner (0: KODE_PRIO_USER_HIGH)"
+        range 0 24
+        default 0
+        help
+            The QP/C priority of the Active Object that owns the Mesh
+            module, which is also its task's FreeRTOS priority. 0 takes
+            kode-sdk's KODE_PRIO_USER_HIGH; mesh_ao.c says why. Two Active
+            Objects at one level stop the board when the second starts, so
+            an app whose own Active Object needs KODE_PRIO_USER_HIGH moves
+            this one to a level nothing in its image holds.
+
+    config MESH_LAB
+        bool "Lift the region's limits: power, frequency, packet, duty cycle, test signal"
+        default n
+        help
+            mesh_region.h holds every transmit of this SDK to the EU plan.
+            Off, the default:
+            mesh_radio_begin() and mesh_radio_configure() hold the power to the
+            cap (8.5 dBm nominal on 868 MHz and 4.5 dBm on 2.4 GHz), and
+            mesh_radio_configure() refuses anything but the band's own
+            bandwidth inside the band's edges, SF7 to SF12, coding rate 4/5,
+            eight preamble symbols and the private sync word.
+
+            On, these are lifted, and only these:
+             - the power, walking the default amplifier row as far as table
+               7-19 or 7-21 gives it: 19 dBm on the LF amplifier and 10 dBm on
+               the HF one. Above that, up to the chip's own top (+22 dBm and
+               +12 dBm, datasheet 7.4), only with MESH_LAB_PA_TABLE: the tables'
+               rows there are Semtech's reference design at 915 and 2445 MHz;
+               use them at your own risk;
+             - the frequency, over the whole of each path: 150 to 960 MHz and
+               1500 to 2500 MHz, whatever the module's antennas are for;
+             - with mesh_radio_configure(), any bandwidth of the chip, SF5 to
+               SF12, coding rate 4/5 to 4/8, any preamble and any sync word
+               byte (the datasheet lists 0x12 and 0x34 as the valid ones);
+             - with mesh_radio_configure(), the SDK's count of the 1 % duty
+               cycle: an app then keeps its region's duty cycle itself.
+               mesh_radio_begin() is still counted;
+             - the test signal, mesh_radio_test(): a carrier or a bare
+               preamble, on air for as long as it is asked and never counted
+               in the duty cycle. Off, the call is refused and nothing is
+               keyed.
+
+            A test signal (mesh_radio_test) is still bounded in time and still
+            goes into a 50 ohm load only; the over-current thresholds are
+            unchanged; and until the app confirms the antennas
+            (mesh_radio_antennas_confirm), every transmit is still held to
+            MESH_SAFE_POWER_CDBM, as in any build. This is a build for testing
+            the module, not for a firmware that is distributed: it puts on air
+            whatever power, band and duty cycle its code asks for. Before any
+            transmit, an antenna or a load on that band's SMA.
+
+    config MESH_LAB_PA_TABLE
+        bool "With MESH_LAB, drive the amplifier with the sheet's rows above the default one"
+        depends on MESH_LAB
+        default n
+        help
+            Rows of the datasheet's power tables (7-19 at 915 MHz, 7-21 at
+            2445 MHz) that this SDK uses above the default row (19 dBm on the
+            LF amplifier, 10 dBm on the HF one): the datasheet's rows, for
+            Semtech's reference design. Use them at your own risk: they can
+            damage the amplifier.
+
+            Off, the default, MESH_LAB holds the power to the top of the
+            default row, 19 dBm on LF and 10 dBm on HF: an ask above is
+            given that. On, the rows above are used, up to +22 dBm and +12 dBm.
+            A non-optimal duty and slices pair can damage the amplifier
+            (datasheet 7.4.1).
+
+    config MESH_SAFE_POWER_CDBM
+        int "The safe power: every transmit until the app confirms the antennas, hundredths of a dBm"
+        range -1000 450
+        default 0
+        help
+            The module ships with its antennas loose, and the LR2021's
+            amplifiers are guaranteed only into a load (datasheet 3-2: up to a
+            VSWR of 10:1; an open SMA is an infinite one). The chip cannot tell a
+            missing antenna, so the SDK does not guess: until
+            the app says the antennas are on (mesh_radio_antennas_confirm(true)),
+            every transmit on both bands is held to this power, and a band whose
+            amplifier tripped its over-current alarm is held to it again until
+            the app confirms once more. The status says so (power_capped,
+            antenna_suspected).
+
+            0 dBm by default. Raise it only with an antenna or a 50 ohm load
+            fitted. It only lowers: an app that asks for less gets what it
+            asks. The top of the range is the 2.4 GHz band's cap, so the safe
+            power is never above the region's cap on either band. MESH_LAB
+            does not lift it.
+
+endmenu

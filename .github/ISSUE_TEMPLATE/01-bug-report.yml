@@ -1,0 +1,122 @@
+name: Bug report
+description: A call of this SDK, the module's owner or a driver behaves wrongly.
+type: Bug
+assignees:
+  - vmlorenzorod
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A `kode_*` call that misbehaves with no Mesh plugged in belongs in [kode-sdk](https://github.com/kodediy/kode-sdk/issues/new/choose); something that only shows through kodeOS belongs in [KodeOS](https://github.com/kodediy/KodeOS/issues/new/choose). A `mesh_*` call, or a module that does not do what it should, belongs here.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before you file
+      options:
+        - label: I have searched the [open and closed issues](https://github.com/kodediy/kode-mesh-sdk/issues?q=is%3Aissue) and found nothing that covers this.
+          required: true
+        - label: I have reproduced it on the latest tag, or on `main`.
+          required: true
+        - label: It reproduces with the Kode Dot on the USB cable, not only on the battery.
+
+  - type: input
+    id: sdk_version
+    attributes:
+      label: SDK version
+      description: The tag or commit your project pins - the `kodediy/mesh` entry of `idf_component.yml`.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: kode_sdk_version
+    attributes:
+      label: kode-sdk version
+      description: The `kodediy/kode` entry of the same file.
+      placeholder: v0.1.5
+    validations:
+      required: true
+
+  - type: input
+    id: idf_version
+    attributes:
+      label: ESP-IDF version
+      description: The output of `idf.py --version`.
+      placeholder: ESP-IDF v6.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Where you believe the fault is. "Not sure" is a fine answer.
+      options:
+        - mesh (the standard layer, mesh.h)
+        - mesh_sys (the extended layer, mesh_sys.h)
+        - mesh_aos (detection, the loan of J3, AO_Mesh, the duty cycle and the region's caps)
+        - mesh_drv - the radio (lr2021) and LoRa's arithmetic (lora)
+        - mesh_drv - the GNSS receiver (gnss) and its sentences (nmea)
+        - mesh_drv - the fingerprint's pins (pins)
+        - mesh_bsp (positions, the LR2021's and the GNSS's facts, the region's limits)
+        - Examples (console_actions holds the console rows)
+        - Host tests or tools
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: module
+    attributes:
+      label: Module and Dot
+      description: The module's revision (printed on the board), what is on its SMAs (an antenna, a 50-ohm load, an analyser) and on its GNSS input, and the Dot's MAC (`esptool read-mac`) or its `info` from kodeOS.
+      render: text
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: What the code did, as precisely as you can. Include what the call returned and what `mesh_error()` said (in `mesh_sys.h`, the answer's `rc` and `why`), `mesh_status()` and exact messages.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What the header says should happen, with a `file:line` if you have one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest `app_main()` that shows it.
+      placeholder: |
+        #include "kode.h"
+        #include "mesh.h"
+
+        void app_main(void)
+        {
+            kode_init();
+            mesh_begin();
+            /* ... */
+        }
+      render: c
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Serial output with the `mesh` tags at debug level. For a panic, the full backtrace.
+      render: text
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: What you already ruled out, whether an earlier tag worked, what you suspect.

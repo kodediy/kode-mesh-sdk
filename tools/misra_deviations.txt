@@ -1,0 +1,22 @@
+# The MISRA C:2012 rules this code base deviates from everywhere, each with
+# its reason. A cppcheck suppressions list, read by tools/check_misra.sh.
+#
+# A rule belongs here when the deviation is a decision about how the whole
+# SDK is written. A finding with a reason of its own is deviated on its line
+# instead, and everything else is counted by the project's baseline.
+#
+# The list is kode-sdk's own (tools/misra_deviations.txt), as the Robotics and
+# F*CK SDKs keep it.
+
+# Rule 15.5 (advisory): a function should have a single point of exit.
+# A function here refuses its bad arguments first and returns, one guard a
+# line, so the body below reads without nesting. A single exit would put the
+# whole body inside the guards' else branches.
+misra-c2012-15.5
+
+# Rule 11.3 (required): a cast between pointers to different object types.
+# QP/C's event macros (Q_NEW_X, the dispatch's downcast of QEvt to the
+# Active Object's own event) are written on it: an event is a QEvt at its
+# start, by QP/C's design. Only mesh_ao.c includes them (check_layers.sh,
+# rule 7).
+misra-c2012-11.3

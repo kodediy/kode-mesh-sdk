@@ -1,0 +1,26 @@
+## kode-sdk at its release v0.1.5, as an app for kodeOS pins it, and this
+## tree's own components by path. An app outside this repository pins
+## kodediy/mesh from git instead, at a release:
+##
+##   kodediy/mesh:
+##     git: https://github.com/kodediy/kode-mesh-sdk.git
+##     path: components/mesh
+##     version: <tag>
+##
+## and mesh_sys, mesh_aos, mesh_drv and mesh_bsp arrive at the same commit through mesh's
+## own manifest; they are listed here so each resolves to this checkout.
+dependencies:
+  kodediy/kode:
+    git: https://github.com/kodediy/kode-sdk.git
+    path: components/kode
+    version: v0.1.5
+  kodediy/mesh:
+    override_path: "../../../components/mesh"
+  kodediy/mesh_sys:
+    override_path: "../../../components/mesh_sys"
+  kodediy/mesh_aos:
+    override_path: "../../../components/mesh_aos"
+  kodediy/mesh_drv:
+    override_path: "../../../components/mesh_drv"
+  kodediy/mesh_bsp:
+    override_path: "../../../components/mesh_bsp"

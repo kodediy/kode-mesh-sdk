@@ -1,0 +1,69 @@
+name: target-build
+
+# The SDK compiled and linked for the esp32p4, against the kode-sdk release
+# the projects pin, the way an app builds it: tests/target and the five
+# examples. A file of its own rather than a job in host-tests.yml: a real
+# esp32p4 build takes minutes, and a slow check folded into a faster one makes
+# both worse. Same triggers and the same paths-ignore list; workflow_dispatch
+# is for a branch nobody has opened a pull request for. No secrets: kode-sdk
+# is public and is fetched over https.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/assign.yml'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/assign.yml'
+  workflow_dispatch:
+  # release.yml calls this as its gate, on the commit the tag names.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: target-build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: esp32p4 (${{ matrix.project }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      # One project failing says nothing about the others, and every answer
+      # is wanted from the same push. Side by side, as kode-sdk builds its
+      # variants: six builds in a row took most of one job's timeout.
+      fail-fast: false
+      matrix:
+        project:
+          - tests/target
+          - examples/module
+          - examples/gnss
+          - examples/receive
+          - examples/send
+          - examples/console_actions
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build ${{ matrix.project }}
+        uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5 # v1.2.0
+        with:
+          esp_idf_version: v6.1
+          target: esp32p4
+          path: ${{ matrix.project }}
+          # After the build of tests/target, the internal RAM check: what the
+          # image puts in the 640 KB of internal RAM at link time, against
+          # tests/target/ram_budget.txt. A build that takes too much still
+          # links and still passes the host suites, and fails on a board - see
+          # tools/check_ram.sh.
+          command: |
+            idf.py build || exit 1
+            if [ "${{ matrix.project }}" = "tests/target" ]; then
+              ../../tools/check_ram.sh build/mesh_target.elf ram_budget.txt || exit 1
+            fi

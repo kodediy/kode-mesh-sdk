@@ -1,0 +1,26 @@
+version: "0.1.0"
+description: "The Mesh module's owner: the Active Object that finds the module and drives its radio and GNSS"
+url: "https://docs.kode.diy/modules/mesh"
+repository: "https://github.com/kodediy/kode-mesh-sdk.git"
+issues: "https://github.com/kodediy/kode-mesh-sdk/issues"
+discussion: "https://github.com/kodediy/kode-mesh-sdk/discussions"
+repository_info:
+  path: "components/mesh_aos"
+license: "GPL-3.0-or-later"
+tags:
+  - kode-dot
+  - lora
+  - gnss
+  - lr2021
+targets:
+  - esp32p4
+
+## kode-sdk's extended layer (kode_sys.h) and its QP/C (kqp.h), and this tree's
+## drivers and board facts. kode-sdk is not pinned here: the app pins it, and
+## kodediy/kode brings kode_sys, kqp, kdefs and klog with it at the release the
+## app chose (this tree is built against v0.1.5). Siblings as in mesh's
+## manifest.
+dependencies:
+  idf: ">=6.1"
+  kodediy/mesh_drv: {version: "==0.1.0", override_path: "../mesh_drv"}
+  kodediy/mesh_bsp: {version: "==0.1.0", override_path: "../mesh_bsp"}

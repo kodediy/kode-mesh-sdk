@@ -1,0 +1,16 @@
+menu "Mesh module SDK, signals"
+
+    config MESH_SIG_OFFSET
+        int "Where this SDK's signals start, above MAX_SIG"
+        range 1000 60000
+        default 1000
+        help
+            An Active Object of an app cannot publish, so every signal of
+            mesh_sys.h is posted, in a range of this SDK's own: from
+            MAX_SIG + this to the count the header lists (27). The app's own
+            signals are free from MAX_SIG to MAX_SIG + 999, and the other
+            module SDKs have a range of theirs above (Robotics 1100, Camera
+            1200, F*CK 1300). Change it only to clear a clash with another
+            library; the header holds the range to 16 bits.
+
+endmenu

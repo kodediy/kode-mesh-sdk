@@ -1,0 +1,45 @@
+version: "0.1.0"
+description: "The Mesh module for Kode Dot apps: the standard layer, mesh.h, and the one dependency an app names"
+url: "https://docs.kode.diy/modules/mesh"
+repository: "https://github.com/kodediy/kode-mesh-sdk.git"
+issues: "https://github.com/kodediy/kode-mesh-sdk/issues"
+discussion: "https://github.com/kodediy/kode-mesh-sdk/discussions"
+repository_info:
+  path: "components/mesh"
+license: "GPL-3.0-or-later"
+tags:
+  - kode-dot
+  - lora
+  - gnss
+  - lr2021
+targets:
+  - esp32p4
+
+## The SDK's examples, which the registry lists under this component.
+examples:
+  - path: ../../examples/console_actions
+  - path: ../../examples/gnss
+  - path: ../../examples/module
+  - path: ../../examples/receive
+  - path: ../../examples/send
+
+## The entry point of this SDK's graph: an app pins kodediy/mesh and every
+## layer below arrives at the same commit through these entries.
+##
+## kode-sdk is not pinned here, nor anywhere under components/: the app pins
+## it, once, in its own main/idf_component.yml, and kodediy/kode brings kdefs
+## and klog with it at the release the app chose (this tree is built against
+## v0.1.5). Two pins of kodediy/kode at two refs cannot be solved.
+##
+## mesh_sys, the extended layer, arrives with it: an app that REQUIRES mesh may
+## include mesh.h (a task's calls) or mesh_sys.h (an Active Object's), or both.
+##
+## Siblings: by path in this repository, and at the same commit when fetched
+## by git. The version moves with every release (tools/check_example_pins.sh
+## checks that every place agrees).
+dependencies:
+  idf: ">=6.1"
+  kodediy/mesh_sys: {version: "==0.1.0", override_path: "../mesh_sys"}
+  kodediy/mesh_aos: {version: "==0.1.0", override_path: "../mesh_aos"}
+  kodediy/mesh_drv: {version: "==0.1.0", override_path: "../mesh_drv"}
+  kodediy/mesh_bsp: {version: "==0.1.0", override_path: "../mesh_bsp"}

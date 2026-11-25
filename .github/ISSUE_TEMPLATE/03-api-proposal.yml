@@ -1,0 +1,60 @@
+name: API proposal
+description: A new mesh_* call, or a change to an existing one.
+type: Feature
+assignees:
+  - vmlorenzorod
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The rules every call keeps: one owner holds the module, and every call asks it. A call of `mesh.h` says in its `@brief` whether it blocks, waits for at most the time it is given and returns `bool`, with `mesh_error()` for why. A request of `mesh_sys.h` never waits: it takes the asking Active Object first and is answered with a signal. Nothing an app calls puts the module on air outside the limits in `mesh_region.h` (the band, the power and the 868 MHz duty cycle), nor above the safe power until the antennas are confirmed. A proposal that has to break one says why in **Risks**.
+        Not sure it is worth a proposal yet? Start a [discussion](https://github.com/kodediy/kode-mesh-sdk/discussions) instead.
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Background and motivation
+      description: The problem this solves, who hits it and how they work around it today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: api
+    attributes:
+      label: Proposed API
+      description: The declarations as they would appear in `mesh.h` and `mesh_sys.h`, each with its Doxygen `@brief`, `@param` and `@return`, whether it blocks and whether it transmits. For an event, the name and the signal.
+      render: c
+    validations:
+      required: true
+
+  - type: textarea
+    id: usage
+    attributes:
+      label: Usage
+      description: How an app would call it - a few lines of real code, on a task of its own or in an Active Object.
+      render: c
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Layer
+      description: |
+        Knows a position, a connector pin or a region's limit: mesh_bsp. Knows a part (LR2021, the GNSS receiver) or an ESP-IDF peripheral: mesh_drv. Holds the module or decides when: mesh_aos. Is what a task calls: mesh. Is what an Active Object calls: mesh_sys.
+      multiple: true
+      options:
+        - mesh (the standard layer, mesh.h)
+        - mesh_sys (the extended layer, mesh_sys.h)
+        - mesh_aos
+        - mesh_drv
+        - mesh_bsp
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks
+      description: Breaking changes, what is put on air (power, duty cycle, the region's limits), an SPI host or a UART that something else uses, RAM.

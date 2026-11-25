@@ -1,0 +1,18 @@
+## kode-sdk at its release v0.1.5, as an app for kodeOS pins it, and this
+## tree's own components by path: the target build checks the code in the
+## checkout, never a tag.
+dependencies:
+  kodediy/kode:
+    git: https://github.com/kodediy/kode-sdk.git
+    path: components/kode
+    version: v0.1.5
+  kodediy/mesh:
+    override_path: "../../../components/mesh"
+  kodediy/mesh_sys:
+    override_path: "../../../components/mesh_sys"
+  kodediy/mesh_aos:
+    override_path: "../../../components/mesh_aos"
+  kodediy/mesh_drv:
+    override_path: "../../../components/mesh_drv"
+  kodediy/mesh_bsp:
+    override_path: "../../../components/mesh_bsp"

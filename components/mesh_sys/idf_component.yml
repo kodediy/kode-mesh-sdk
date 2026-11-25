@@ -1,0 +1,25 @@
+version: "0.1.0"
+description: "The Mesh module for Kode Dot apps: the extended layer, mesh_sys.h, whose calls never wait"
+url: "https://docs.kode.diy/modules/mesh"
+repository: "https://github.com/kodediy/kode-mesh-sdk.git"
+issues: "https://github.com/kodediy/kode-mesh-sdk/issues"
+discussion: "https://github.com/kodediy/kode-mesh-sdk/discussions"
+repository_info:
+  path: "components/mesh_sys"
+license: "GPL-3.0-or-later"
+tags:
+  - kode-dot
+  - lora
+  - gnss
+  - lr2021
+targets:
+  - esp32p4
+
+## kode-sdk is not pinned here: the app pins it, and kodediy/kode brings
+## kode_sys, kdefs and klog with it at the release the app chose (this tree is
+## built against v0.1.5). Siblings as in mesh's manifest.
+dependencies:
+  idf: ">=6.1"
+  kodediy/mesh_aos: {version: "==0.1.0", override_path: "../mesh_aos"}
+  kodediy/mesh_drv: {version: "==0.1.0", override_path: "../mesh_drv"}
+  kodediy/mesh_bsp: {version: "==0.1.0", override_path: "../mesh_bsp"}

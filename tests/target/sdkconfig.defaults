@@ -1,0 +1,26 @@
+# The target build's own settings. Everything about the board - flash, PSRAM,
+# cache, the console - arrives from kbsp's sdkconfig.board, which
+# CMakeLists.txt fetches and reads first. Do not copy any of it here.
+
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="managed_components/kodediy__kbsp/partitions.csv"
+
+# The role every consumer of the SDK builds in.
+CONFIG_KODEOS_BOOT_ROLE_APP=y
+
+# J3's 3.3 V, the module's supply, is switched by a pin of the Dot's C5,
+# and its state when an app starts is not promised: the SDK's owner asks for
+# it with kode_sys_exp_power(), over the link to the C5 (mesh.h, "J3's
+# SUPPLY"). So the radio, but no WiFi, no net and no BLE (a choice inside the
+# bt component that this project never makes): nothing here opens a socket,
+# and a WiFi scan holds the link - the module's supply with it - for up to
+# some 40 s. As kode-sdk's own ir_remote example has it. KODEOS_BLE is left
+# unset, never written as =n.
+CONFIG_KODEOS_RADIO=y
+CONFIG_KODEOS_WIFI=n
+CONFIG_KODEOS_NET=n
+CONFIG_KODEOS_CHANNEL=n
+
+# The GNSS's UART is installed on lent pins, and an app that writes flash
+# (an install, a file on the SD) turns the cache off for each erase: its
+# interrupt must stay reachable then (kode_sys.h, kode_sys_exp_lend()).
+CONFIG_UART_ISR_IN_IRAM=y
