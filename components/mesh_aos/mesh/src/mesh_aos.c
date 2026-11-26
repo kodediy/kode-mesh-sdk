@@ -235,6 +235,9 @@ typedef struct {
 
 static own_t             s;
 static bool              s_started;
+static bool              s_owner_running;       /* the owner's task was made (it is never taken down); under s_starting */
+static uint32_t          s_ends_queued;         /* under s_lock: ends posted (mesh_aos_end_post()) the owner has not served */
+static uint32_t          s_starts_queued;       /* under s_lock: MESH_REQUEST_START posted, not served */
 static bool              s_duty_ready;          /* the duty bucket was filled once, when the app first started the owner */
 static volatile bool     s_ended;               /* the app let go (mesh_aos_end()): no looking until it starts again */
 static portMUX_TYPE      s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -1112,6 +1115,14 @@ static void radio_cad_done(void)
     }
 }
 
+/** @brief A timed listen is over: the app told, once. */
+static void listen_over(void)
+{
+    s.listening = false;
+    publish();
+    emit((uint8_t)MESH_AOS_EVENT_LISTEN_END, 0U);
+}
+
 /** @brief Read the packet the chip just received into the ring. */
 static void radio_rx_done(uint32_t irq)
 {
@@ -1168,9 +1179,7 @@ static void radio_timeout(void)
             receiver_lost();
         }
     } else if (s.listening) {
-        s.listening = false;
-        publish();
-        emit((uint8_t)MESH_AOS_EVENT_LISTEN_END, 0U);
+        listen_over();
     } else {
         /* a timer nothing was waiting on */
     }
@@ -1301,6 +1310,14 @@ static void radio_irq(uint32_t f)
     } else {
         /* no packet */
     }
+    if (s.listening && ((f & (MESH_DRV_LR2021_INTERRUPT_RECEIVE_DONE | MESH_DRV_LR2021_INTERRUPT_CRC_ERROR
+                              | MESH_DRV_LR2021_INTERRUPT_HEADER_ERROR)) != 0U)) {
+        /* A timed listen is a single receive: the chip falls back after its packet, good or
+         * bad, as after a search's. Left on, a search, a calibration or a retune would be refused
+         * as busy, and listen_ended would wait for the listen's whole time. */
+        (void)radio_off();   /* sure that nothing is left in Rx; a failure resets the chip and says so */
+        listen_over();
+    }
     if ((f & MESH_DRV_LR2021_INTERRUPT_SEND_DONE) != 0U) {
         radio_tx_done();
     }
@@ -1395,9 +1412,8 @@ static void radio_tick(uint32_t dt)
         test_deadline();
     }
     if (s.listening && (s.listen_left_ms == 0U)) {
-        s.listening = false;
-        publish();
-        emit((uint8_t)MESH_AOS_EVENT_LISTEN_END, 0U);
+        (void)radio_off();   /* its timer flag was missed: the chip is not left in Rx either */
+        listen_over();
     }
     if (s.arriving && (s.arriving_left_ms == 0U)) {
         s.arriving = false;   /* nothing came of it */
@@ -2182,7 +2198,7 @@ static void power_ask(bool on)
  *        the GNSS closed, the lines handed back and J3's supply asked off; nothing the app
  *        set up is remembered, and nothing is looked for until mesh_aos_start().
  */
-static kode_status_t do_end(void)
+static kode_status_t do_end(const mesh_aos_request_t *r)
 {
     bool const had = s.present;
 
@@ -2198,7 +2214,12 @@ static kode_status_t do_end(void)
     s_antennas_ok      = false;   /* the app's word on the antennas goes with the rest */
     s_antennas_suspect = 0U;
     s_antennas_epoch++;
-    s_started = false;            /* with the word: see mesh_aos_antennas_confirm() */
+    if ((r->u != 0U) && (s_ends_queued > 0U)) {
+        s_ends_queued--;          /* a posted end, served */
+    }
+    if (s_starts_queued == 0U) {
+        s_started = false;        /* with the word: see mesh_aos_antennas_confirm() */
+    }                             /* else a start is behind this end in the queue: it stands */
     taskEXIT_CRITICAL(&s_lock);
     s.seen          = MESH_MODULE_NONE;
     s.seen_level    = 0U;
@@ -2239,11 +2260,53 @@ static void absent_forget(const mesh_aos_request_t *r)
     }
 }
 
+/**
+ * @brief The owner's state for a start: the supply asked from the next tick, nothing seen,
+ *        the looking from scratch. Run before the owner's task is made, or on it (do_start()):
+ *        never from an app's task while the owner runs.
+ */
+static void start_state(void)
+{
+    s.look_ms = MESH_BSP_LOOK_MS;   /* the first look on the first tick */
+    s.seen    = MESH_MODULE_NONE;
+    s.epoch   = s_stop_epoch;
+    s.rest_lost = 0UL;
+    /* The module's supply is asked from the owner's first tick, with the owner already
+     * subscribed to EXP_POWER_SIG: the module comes up a few ms later, or after a Wi-Fi
+     * scan the C5 is busy with, and the owner finds it whenever its pull-ups appear. The
+     * state it was in before is not assumed. */
+    s.power_wish  = true;
+    s.power_retry = true;
+    s.supply      = (uint8_t)MESH_SUPPLY_UNKNOWN;
+    s_tick_at = kode_sys_time_ms();
+    s_ended   = false;   /* last: the tick looks from here */
+    publish();   /* mesh_status() before the first tick: no module */
+}
+
+/**
+ * @brief MESH_REQUEST_START: a start after an end, on the owner's task. Behind the end in the
+ *        queue, so an end that is still finishing cannot undo it.
+ */
+static kode_status_t do_start(void)
+{
+    taskENTER_CRITICAL(&s_lock);
+    if (s_starts_queued > 0U) {
+        s_starts_queued--;
+    }
+    s_started = true;   /* an end served between the post and this kept it, or cleared it: either way, started */
+    taskEXIT_CRITICAL(&s_lock);
+    start_state();
+    return KODE_OK;
+}
+
 /** @brief Apply one request. */
 static kode_status_t handle(const mesh_aos_request_t *r)
 {
     if (r->kind == MESH_REQUEST_END) {
-        return do_end();
+        return do_end(r);
+    }
+    if (r->kind == MESH_REQUEST_START) {
+        return do_start();
     }
     if (!s.present) {
         absent_forget(r);
@@ -2798,9 +2861,19 @@ kode_status_t mesh_aos_end_post(void)
         mesh_aos_why_note(MESH_WHY_NOT_STARTED);
         return KODE_DENIED;
     }
-    mesh_aos_request_t r = { .kind = MESH_REQUEST_END };
+    mesh_aos_request_t r = { .kind = MESH_REQUEST_END, .u = 1U };   /* u: a posted end, counted */
     r.epoch = s_stop_epoch;
+    /* Counted before it is posted (the owner may serve it at once), and uncounted if it is not:
+     * a start that comes before the owner serves it must not take "started" for an answer. */
+    taskENTER_CRITICAL(&s_lock);
+    s_ends_queued++;
+    taskEXIT_CRITICAL(&s_lock);
     kode_status_t const rc = mesh_ao_post(&r);
+    if (rc != KODE_OK) {
+        taskENTER_CRITICAL(&s_lock);
+        s_ends_queued--;
+        taskEXIT_CRITICAL(&s_lock);
+    }
     mesh_aos_why_note((rc == KODE_OK) ? MESH_WHY_NONE : MESH_WHY_QUEUE_FULL);
     return rc;
 }
@@ -2825,31 +2898,49 @@ static kode_status_t start_work(void)
         mesh_plan_duty_init(&s.duty, MESH_REGION_SUB_GHZ_DUTY_PPT);
         s_duty_ready = true;
     }
-    s.look_ms = MESH_BSP_LOOK_MS;   /* the first look on the first tick */
-    s.seen    = MESH_MODULE_NONE;
-    s_ended   = false;
-    s.epoch   = s_stop_epoch;
-    s.rest_lost = 0UL;
-    /* The module's supply is asked from the owner's first tick, with the owner already
-     * subscribed to EXP_POWER_SIG: the module comes up a few ms later, or after a Wi-Fi
-     * scan the C5 is busy with, and the owner finds it whenever its pull-ups appear. The
-     * state it was in before is not assumed. */
-    s.power_wish  = true;
-    s.power_retry = true;
-    s.supply      = (uint8_t)MESH_SUPPLY_UNKNOWN;
-    publish();   /* mesh_status() before the first tick: no module */
-    s_tick_at = kode_sys_time_ms();
-    kode_status_t const rc = mesh_ao_start();
-    if (rc != KODE_OK) {
-        return rc;
+    if (!s_owner_running) {
+        /* The first start: the owner's task does not exist yet, so nobody else is on its state. */
+        start_state();
+        kode_status_t const rc = mesh_ao_start();
+        if (rc != KODE_OK) {
+            return rc;
+        }
+        s_owner_running = true;
+    } else {
+        /* After an end the owner's task is still there, and may still be finishing that end:
+         * its state is written by it, behind the end in its queue (do_start()). The calls the
+         * app makes from here wait for the module, which is looked for only after that. */
+        mesh_aos_request_t r = { .kind = MESH_REQUEST_START };
+        r.epoch = s_stop_epoch;
+        taskENTER_CRITICAL(&s_lock);
+        s_starts_queued++;   /* before the post: an end served first must leave "started" alone */
+        taskEXIT_CRITICAL(&s_lock);
+        kode_status_t const rc = mesh_ao_post(&r);
+        if (rc != KODE_OK) {
+            taskENTER_CRITICAL(&s_lock);
+            s_starts_queued--;
+            taskEXIT_CRITICAL(&s_lock);
+            return rc;
+        }
     }
+    taskENTER_CRITICAL(&s_lock);
     s_started = true;
+    taskEXIT_CRITICAL(&s_lock);
     return KODE_OK;
+}
+
+/** @brief Started, and no end on its way that would undo it: a start has nothing to do. */
+static bool started_for_good(void)
+{
+    taskENTER_CRITICAL(&s_lock);
+    bool const yes = s_started && (s_ends_queued == 0U);
+    taskEXIT_CRITICAL(&s_lock);
+    return yes;
 }
 
 kode_status_t mesh_aos_start(void)
 {
-    if (s_started) {
+    if (started_for_good()) {
         mesh_aos_why_note(MESH_WHY_NONE);
         return KODE_OK;
     }
@@ -2860,7 +2951,7 @@ kode_status_t mesh_aos_start(void)
     /* Two callers at once: one starts it, the other waits the few microseconds it takes. */
     for (uint32_t waited = 0U; ; waited++) {
         taskENTER_CRITICAL(&s_lock);
-        bool const mine = !s_starting && !s_started;
+        bool const mine = !s_starting && (!s_started || (s_ends_queued > 0U));
         bool const busy = s_starting;
         if (mine) {
             s_starting = true;
@@ -2985,8 +3076,12 @@ static void forget_noted(mesh_request_kind_t kind, uint32_t u)
 
 kode_status_t mesh_aos_post(const mesh_aos_request_t *req)
 {
-    if (!s_started || (req == NULL)) {
-        mesh_aos_why_note((req == NULL) ? MESH_WHY_BAD_ARGUMENT : MESH_WHY_NOT_STARTED);
+    if ((req == NULL) || (req->kind == MESH_REQUEST_START)) {
+        mesh_aos_why_note(MESH_WHY_BAD_ARGUMENT);   /* a start is mesh_aos_start()'s */
+        return KODE_DENIED;
+    }
+    if (!s_started) {
+        mesh_aos_why_note(MESH_WHY_NOT_STARTED);
         return KODE_DENIED;
     }
     if (!mesh_aos_present()) {
@@ -3016,7 +3111,7 @@ kode_status_t mesh_aos_post(const mesh_aos_request_t *req)
 
 kode_status_t mesh_aos_ask(const mesh_aos_request_t *req, void *ask, mesh_aos_done_fn_t done)
 {
-    if ((req == NULL) || (done == NULL)) {
+    if ((req == NULL) || (done == NULL) || (req->kind == MESH_REQUEST_START)) {
         mesh_aos_why_note(MESH_WHY_BAD_ARGUMENT);
         return KODE_DENIED;
     }
@@ -3253,8 +3348,12 @@ const char *mesh_aos_why_text(uint8_t why)
 static kode_status_t call_work(const mesh_aos_request_t *req, uint32_t ms, uint32_t *out1,
                                uint32_t *out2, uint8_t *why)
 {
-    if (!s_started || (req == NULL)) {
-        *why = (req == NULL) ? MESH_WHY_BAD_ARGUMENT : MESH_WHY_NOT_STARTED;
+    if ((req == NULL) || (req->kind == MESH_REQUEST_START)) {
+        *why = MESH_WHY_BAD_ARGUMENT;   /* a start is mesh_aos_start()'s */
+        return KODE_DENIED;
+    }
+    if (!s_started) {
+        *why = MESH_WHY_NOT_STARTED;
         return KODE_DENIED;
     }
     if (mesh_aos_caller_is_ao(NULL)) {

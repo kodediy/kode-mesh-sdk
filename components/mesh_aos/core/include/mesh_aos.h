@@ -90,7 +90,7 @@ typedef enum {
                             *   airtime, ms), or refused (out1: the wait, ms, when the duty
                             *   budget has no room).                              */
     MESH_REQUEST_RADIO_RECEIVE,       /**< u: 1 receive on, 0 off.                        */
-    MESH_REQUEST_RADIO_LISTEN,        /**< u: ms to receive, then the chip's timer ends it. */
+    MESH_REQUEST_RADIO_LISTEN,        /**< u: ms to receive one packet; it or the chip's timer ends it. */
     MESH_REQUEST_RADIO_TEST,       /**< u: a mesh_drv_lr2021_test_t (0 stops one), i: how
                             *   long, ms, 1..MESH_BSP_TEST_MAX_MS. Refused when
                             *   a packet or a test is on air already.          */
@@ -110,6 +110,8 @@ typedef enum {
     MESH_REQUEST_END,           /**< Let go of the module: everything off, the lines back,
                             *   J3's supply asked off, no more looking. Served with or
                             *   without a module.                              */
+    MESH_REQUEST_START,         /**< mesh_aos_start()'s own, after an end: the owner takes up
+                            *   its state again on its task, behind the end. Not the app's. */
 } mesh_request_kind_t;
 
 /**
@@ -254,7 +256,8 @@ typedef enum {
 
 /**
  * @brief Start the owner's task. Idempotent, from any task or Active Object; returns
- *        at once and does not wait for the module nor for J3's supply.
+ *        at once and does not wait for the module nor for J3's supply. After an end the
+ *        owner takes itself up again on its own task, behind the end (MESH_REQUEST_START).
  * @return KODE_OK; KODE_NO_RESOURCES when the task or its queue could not be made;
  *         KODE_DENIED when the owner's QP/C level is not its to take (a message in the log says which).
  */
@@ -445,7 +448,11 @@ bool mesh_aos_event_known(const char *name);
  */
 bool mesh_aos_listener_add(const char *name, mesh_listener_t fn);
 
-/** @brief Stop calling @p fn for @p name. @return true when it was registered. */
+/**
+ * @brief Stop calling @p fn for @p name. Once it returns no call of it is running or to come: from
+ *        another task it waits for the one running; on the events task it does not wait.
+ * @return true when it was registered.
+ */
 bool mesh_aos_listener_remove(const char *name, mesh_listener_t fn);
 
 /**

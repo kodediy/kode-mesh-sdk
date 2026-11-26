@@ -278,6 +278,75 @@ TEST_CASE("listen: the chip's timeout flag raises the app's timeout event", "[ow
     TEST_ASSERT_EQUAL_UINT(0U, h_events(MESH_AOS_EVENT_RADIO_ERROR));
 }
 
+/** @brief A channel search, as mesh_radio_cad() makes it; refused as busy while a listen runs. */
+static kode_status_t cad_now(void)
+{
+    const mesh_aos_request_t req = { .kind = MESH_REQUEST_RADIO_CAD };
+    uint32_t seen = 0U;
+
+    g_lr.cad_finish = MESH_DRV_LR2021_INTERRUPT_CAD_DONE;
+    return mesh_aos_call(&req, 2000U, &seen, NULL);
+}
+
+TEST_CASE("listen: a packet ends it, at once: listen_ended follows the packet and the radio is free", "[owner][rx]")
+{
+    harness_fresh();
+    TEST_ASSERT_EQUAL(KODE_OK, listen_ms(1000U));
+    TEST_ASSERT_EQUAL(MESH_DRV_LR2021_MODE_RECEIVE, g_lr.mode);
+    TEST_ASSERT_EQUAL(KODE_DENIED, cad_now());   /* busy while it listens */
+
+    /* A timed listen is a single receive: the chip leaves Rx with its packet. */
+    lr_fake_inject(HELLO, sizeof(HELLO), true);
+    lr_fake_chip_stops(MESH_DRV_LR2021_INTERRUPT_RECEIVE_DONE);
+    TEST_ASSERT_TRUE(WAIT_FOR(h_events(MESH_AOS_EVENT_LISTEN_END) == 1U, 200));
+    TEST_ASSERT_TRUE(h_event_with(MESH_AOS_EVENT_PACKET, 5U));
+    TEST_ASSERT_EQUAL_UINT8(1U, h_status().packets_waiting);
+    TEST_ASSERT_NOT_EQUAL(MESH_DRV_LR2021_MODE_RECEIVE, g_lr.mode);
+
+    /* nothing is listening any more, so nothing is busy */
+    TEST_ASSERT_EQUAL(KODE_OK, cad_now());
+
+    /* and the listen's own time running out later says nothing more */
+    vTaskDelay(pdMS_TO_TICKS(1300));
+    TEST_ASSERT_EQUAL_UINT(1U, h_events(MESH_AOS_EVENT_LISTEN_END));
+}
+
+TEST_CASE("listen: a bad packet ends it too, and nothing is delivered", "[owner][rx][crc]")
+{
+    harness_fresh();
+    TEST_ASSERT_EQUAL(KODE_OK, listen_ms(1000U));
+
+    lr_fake_chip_stops(MESH_DRV_LR2021_INTERRUPT_CRC_ERROR);
+    TEST_ASSERT_TRUE(WAIT_FOR(h_events(MESH_AOS_EVENT_LISTEN_END) == 1U, 200));
+    TEST_ASSERT_EQUAL_UINT8(0U, h_status().packets_waiting);
+    TEST_ASSERT_EQUAL(KODE_OK, cad_now());
+}
+
+TEST_CASE("listen: a bad header ends it too, and the chip is surely out of Rx", "[owner][rx]")
+{
+    harness_fresh();
+    TEST_ASSERT_EQUAL(KODE_OK, listen_ms(1000U));
+
+    lr_fake_raise(MESH_DRV_LR2021_INTERRUPT_HEADER_ERROR);   /* the chip's mode is not assumed */
+    TEST_ASSERT_TRUE(WAIT_FOR(h_events(MESH_AOS_EVENT_LISTEN_END) == 1U, 200));
+    TEST_ASSERT_TRUE(h_event_with(MESH_AOS_EVENT_HEADER_BAD, 0U));
+    TEST_ASSERT_NOT_EQUAL(MESH_DRV_LR2021_MODE_RECEIVE, g_lr.mode);
+}
+
+TEST_CASE("listen: a send cuts it short, quietly, as the app's own word; no late listen_ended", "[owner][rx]")
+{
+    harness_fresh();
+    TEST_ASSERT_EQUAL(KODE_OK, listen_ms(1000U));
+
+    TEST_ASSERT_EQUAL(KODE_OK, h_send(HELLO, sizeof(HELLO), 2000U));
+    lr_fake_chip_stops(MESH_DRV_LR2021_INTERRUPT_SEND_DONE);
+    TEST_ASSERT_EQUAL(KODE_OK, h_send_answer(1000U, NULL));
+    TEST_ASSERT_EQUAL(KODE_OK, cad_now());   /* nothing left listening */
+
+    vTaskDelay(pdMS_TO_TICKS(1300));
+    TEST_ASSERT_EQUAL_UINT(0U, h_events(MESH_AOS_EVENT_LISTEN_END));
+}
+
 TEST_CASE("listen: receive on during a listen ends the listen first, so its timer cannot cut the receive", "[owner][rx]")
 {
     harness_fresh();

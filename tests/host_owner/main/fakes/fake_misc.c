@@ -123,6 +123,10 @@ kode_status_t kode_sys_exp_power(bool on)
     } else {
         g_exp.power_off_calls++;
     }
+    void (*const hook)(bool) = g_exp.power_hook;
+    if (hook != NULL) {
+        hook(on);
+    }
     return g_exp.power_rc;
 }
 
