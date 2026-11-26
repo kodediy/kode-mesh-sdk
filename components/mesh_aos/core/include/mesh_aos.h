@@ -445,7 +445,11 @@ bool mesh_aos_event_known(const char *name);
  */
 bool mesh_aos_listener_add(const char *name, mesh_listener_t fn);
 
-/** @brief Stop calling @p fn for @p name. @return true when it was registered. */
+/**
+ * @brief Stop calling @p fn for @p name. Once it returns no call of it is running or to come: from
+ *        another task it waits for the one running; on the events task it does not wait.
+ * @return true when it was registered.
+ */
 bool mesh_aos_listener_remove(const char *name, mesh_listener_t fn);
 
 /**

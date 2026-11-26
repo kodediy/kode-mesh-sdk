@@ -91,6 +91,8 @@ static uint32_t       s_dropped;                      /* under s_lock */
 static uint32_t       s_push_seq;                     /* under s_lock */
 static listener_t     s_listeners[MESH_LISTENERS_MAX];   /* under s_lock */
 static waiter_t       s_waiters[WAITERS_MAX];         /* under s_lock */
+static mesh_listener_t s_calling_fn;                  /* the listener the task is calling, under s_lock */
+static uint8_t        s_calling_ev;                   /* and for which event, under s_lock */
 
 const char *mesh_aos_event_name(uint8_t ev)
 {
@@ -157,9 +159,8 @@ static void deliver(const ev_msg_t *m)
 {
     mesh_event_t heard = { .name = mesh_aos_event_name(m->ev), .value = m->value,
                                .text = event_text(m->ev, m->value) };
-    mesh_listener_t calls[MESH_LISTENERS_MAX];
+    mesh_listener_t calls[MESH_LISTENERS_MAX] = { NULL };   /* slot by slot: who had the event when it came */
     SemaphoreHandle_t wake[WAITERS_MAX];
-    uint8_t n = 0U;
     uint8_t n_wake = 0U;
 
     if (heard.name == NULL) {
@@ -176,7 +177,7 @@ static void deliver(const ev_msg_t *m)
     }
     for (uint8_t i = 0U; i < MESH_LISTENERS_MAX; i++) {
         if ((s_listeners[i].fn != NULL) && (s_listeners[i].ev == m->ev)) {
-            calls[n++] = s_listeners[i].fn;
+            calls[i] = s_listeners[i].fn;
         }
     }
     taskEXIT_CRITICAL(&s_lock);
@@ -186,8 +187,25 @@ static void deliver(const ev_msg_t *m)
     for (uint8_t i = 0U; i < n_wake; i++) {
         (void)xSemaphoreGive(wake[i]);
     }
-    for (uint8_t i = 0U; i < n; i++) {
-        calls[i](&heard);
+    /* The listeners the event found when it came are called, each only if it is still there
+     * just before its call, and the call is marked under the lock: one removed in the meantime,
+     * by another task or by a listener before it, is not called, one added is not called for an
+     * event older than it, and mesh_aos_listener_remove() can wait for the call that is running. */
+    for (uint8_t i = 0U; i < MESH_LISTENERS_MAX; i++) {
+        mesh_listener_t fn = NULL;
+        taskENTER_CRITICAL(&s_lock);
+        if ((calls[i] != NULL) && (s_listeners[i].fn == calls[i]) && (s_listeners[i].ev == m->ev)) {
+            fn           = calls[i];
+            s_calling_fn = fn;
+            s_calling_ev = m->ev;
+        }
+        taskEXIT_CRITICAL(&s_lock);
+        if (fn != NULL) {
+            fn(&heard);
+            taskENTER_CRITICAL(&s_lock);
+            s_calling_fn = NULL;
+            taskEXIT_CRITICAL(&s_lock);
+        }
     }
 }
 
@@ -322,7 +340,19 @@ bool mesh_aos_listener_remove(const char *name, mesh_listener_t fn)
             removed = true;
         }
     }
+    bool running = removed && (s_calling_fn == fn) && (s_calling_ev == (uint8_t)ev);
     taskEXIT_CRITICAL(&s_lock);
+    /* No new call can start now. A call that is running is waited for, so that what the listener
+     * uses may be freed once this returns - but not on the events task itself: there it is this
+     * listener's own call, or none (one listener at a time), and waiting would never end. */
+    if (running && (xTaskGetCurrentTaskHandle() != s_task)) {
+        while (running) {
+            vTaskDelay(1);
+            taskENTER_CRITICAL(&s_lock);
+            running = (s_calling_fn == fn) && (s_calling_ev == (uint8_t)ev);
+            taskEXIT_CRITICAL(&s_lock);
+        }
+    }
     return removed;
 }
 

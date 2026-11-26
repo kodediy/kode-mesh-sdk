@@ -377,3 +377,79 @@ TEST_CASE("queue: a slow listener costs the events behind it, sixteen wait and t
     /* The queue is free again. */
     TEST_ASSERT_TRUE(mesh_aos_events_push(MESH_AOS_EVENT_HEADER_BAD, MAGIC + 30));
 }
+
+/* ---- Removing a listener ------------------------------------------------------- */
+
+static volatile bool     s_long_in;
+static volatile bool     s_long_out;
+static volatile unsigned s_long_calls;
+
+/** @brief A listener that takes its time, as an app's may. */
+static void long_call(const mesh_event_t *e)
+{
+    if ((e->value & ~0xFFFF) != MAGIC) {
+        return;
+    }
+    s_long_calls++;
+    s_long_in = true;
+    vTaskDelay(pdMS_TO_TICKS(200));
+    s_long_out = true;
+}
+
+TEST_CASE("remove: from another task it returns only once the call running has ended, and none comes after", "[owner][events]")
+{
+    harness_fresh();
+    s_long_in    = false;
+    s_long_out   = false;
+    s_long_calls = 0U;
+    TEST_ASSERT_TRUE(mesh_aos_listener_add("header_failed", long_call));
+
+    TEST_ASSERT_TRUE(mesh_aos_events_push(MESH_AOS_EVENT_HEADER_BAD, MAGIC + 1));
+    TEST_ASSERT_TRUE(mesh_aos_events_push(MESH_AOS_EVENT_HEADER_BAD, MAGIC + 2));   /* queued behind it */
+    TEST_ASSERT_TRUE(WAIT_FOR(s_long_in, 1000));
+
+    TEST_ASSERT_TRUE(mesh_aos_listener_remove("header_failed", long_call));
+    /* What the listener uses may be freed from here: its call is over. */
+    TEST_ASSERT_TRUE(s_long_out);
+
+    vTaskDelay(pdMS_TO_TICKS(400));
+    TEST_ASSERT_EQUAL_UINT(1U, s_long_calls);   /* not for the event queued behind */
+}
+
+static volatile unsigned s_self_calls;
+static volatile int      s_self_removed = -1;
+
+/** @brief A listener that removes itself and the one after it, from inside its call. */
+static void self_remove(const mesh_event_t *e)
+{
+    if ((e->value & ~0xFFFF) != MAGIC) {
+        return;
+    }
+    s_self_calls++;
+    s_self_removed = mesh_aos_listener_remove("header_failed", self_remove) ? 1 : 0;
+    (void)mesh_aos_listener_remove("header_failed", hear_other);
+}
+
+TEST_CASE("remove: from inside a listener it does not wait for itself, and one removed there is not called after", "[owner][events]")
+{
+    harness_fresh();
+    forget();
+    s_self_calls   = 0U;
+    s_self_removed = -1;
+    TEST_ASSERT_TRUE(mesh_aos_listener_add("header_failed", self_remove));
+    TEST_ASSERT_TRUE(mesh_aos_listener_add("header_failed", hear_other));   /* after it, same event */
+
+    TEST_ASSERT_TRUE(mesh_aos_events_push(MESH_AOS_EVENT_HEADER_BAD, MAGIC + 1));
+    TEST_ASSERT_TRUE(WAIT_FOR(s_self_calls == 1U, 1000));
+    vTaskDelay(pdMS_TO_TICKS(50));
+    TEST_ASSERT_EQUAL_INT(1, s_self_removed);
+    TEST_ASSERT_EQUAL_UINT(0U, s_n);   /* hear_other was removed before its turn came */
+
+    /* both are gone: the next one reaches neither */
+    TEST_ASSERT_TRUE(mesh_aos_events_push(MESH_AOS_EVENT_HEADER_BAD, MAGIC + 2));
+    vTaskDelay(pdMS_TO_TICKS(50));
+    TEST_ASSERT_EQUAL_UINT(1U, s_self_calls);
+    TEST_ASSERT_EQUAL_UINT(0U, s_n);
+    TEST_ASSERT_FALSE(mesh_aos_listener_remove("header_failed", self_remove));
+    TEST_ASSERT_FALSE(mesh_aos_listener_remove("header_failed", hear_other));
+}

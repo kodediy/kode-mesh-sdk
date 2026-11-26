@@ -322,7 +322,12 @@ uint8_t mesh_header_position(uint8_t pos);
 bool mesh_event_add_listener(const char *event, mesh_listener_t fn);
 
 /**
- * @brief Stop calling @p fn for @p event. Returns at once.
+ * @brief Stop calling @p fn for @p event.
+ *
+ * Once it returns, @p fn is not called again for @p event and no call of it is running, so what it
+ * uses may be freed. From a task of the app it waits for a call that is running to end; from inside
+ * a listener it returns at once (a listener may remove itself). Do not call it holding something
+ * @p fn waits for.
  * @return true when it was registered; false otherwise.
  */
 bool mesh_event_remove_listener(const char *event, mesh_listener_t fn);
