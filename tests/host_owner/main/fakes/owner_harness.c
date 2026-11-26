@@ -302,6 +302,7 @@ void harness_fresh(void)
     g_gnss.open_rc    = KODE_OK;
     g_gnss.sleep_rc   = KODE_OK;
     g_exp.refuse_lend = NULL;
+    g_exp.power_hook  = NULL;
     g_exp.spi_refused  = false;
     g_exp.uart_refused = false;
     g_exp.spi_id       = 2U;

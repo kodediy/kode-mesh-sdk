@@ -110,6 +110,8 @@ typedef enum {
     MESH_REQUEST_END,           /**< Let go of the module: everything off, the lines back,
                             *   J3's supply asked off, no more looking. Served with or
                             *   without a module.                              */
+    MESH_REQUEST_START,         /**< mesh_aos_start()'s own, after an end: the owner takes up
+                            *   its state again on its task, behind the end. Not the app's. */
 } mesh_request_kind_t;
 
 /**
@@ -254,7 +256,8 @@ typedef enum {
 
 /**
  * @brief Start the owner's task. Idempotent, from any task or Active Object; returns
- *        at once and does not wait for the module nor for J3's supply.
+ *        at once and does not wait for the module nor for J3's supply. After an end the
+ *        owner takes itself up again on its own task, behind the end (MESH_REQUEST_START).
  * @return KODE_OK; KODE_NO_RESOURCES when the task or its queue could not be made;
  *         KODE_DENIED when the owner's QP/C level is not its to take (a message in the log says which).
  */

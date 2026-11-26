@@ -151,3 +151,133 @@ TEST_CASE("end: letting go and starting again does not refill the duty budget", 
     TEST_ASSERT_EQUAL_UINT(sends, g_lr.n_send);
     fake_clock_skip(3600000U);   /* an hour passes: the budget this case spent is back for the next */
 }
+
+/* ---- An end and a start from two tasks ----------------------------------------- */
+
+static h_bg_t                 s_starter;
+static volatile kode_status_t s_start_rc;
+static volatile unsigned      s_starts_in_end;
+
+static void start_body(void *arg)
+{
+    (void)arg;
+    s_start_rc = mesh_aos_start();
+}
+
+/** @brief The end is switching J3's supply off: another task starts the owner right then. */
+static void start_during_end(bool on)
+{
+    if (on || (s_starts_in_end > 0U)) {
+        return;
+    }
+    s_starts_in_end++;
+    h_bg_start(&s_starter, start_body, NULL);
+    (void)h_bg_join(&s_starter, 1000U);
+}
+
+TEST_CASE("end: a start from another task while the end is finishing is not undone by it", "[owner][end]")
+{
+    harness_fresh();
+    s_start_rc      = KODE_ERROR;
+    s_starts_in_end = 0U;
+    unsigned const on = g_exp.power_on_calls;
+    g_exp.power_hook = start_during_end;
+
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_end());
+    g_exp.power_hook = NULL;
+    TEST_ASSERT_EQUAL_UINT(1U, s_starts_in_end);
+    TEST_ASSERT_EQUAL(KODE_OK, s_start_rc);
+    TEST_ASSERT_TRUE(mesh_aos_running());
+
+    /* The start came last, so it holds: the supply asked on again and the module found. */
+    TEST_ASSERT_TRUE(WAIT_FOR(g_exp.power_on_calls > on, 1000U));
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_wait_present(5000U));
+    TEST_ASSERT_EQUAL(KODE_OK, h_begin(MESH_PLAN_BAND_SUB_GHZ, 9U, 400));
+}
+
+static void end_body(void *arg)
+{
+    (void)arg;
+    (void)mesh_aos_end();
+}
+
+TEST_CASE("end: an end and a start back to back from two tasks, many times, never leave a start undone", "[owner][end]")
+{
+    harness_fresh();
+    for (unsigned n = 0U; n < 30U; n++) {
+        h_bg_t ender;
+        h_bg_start(&ender, end_body, NULL);
+        vTaskDelay((TickType_t)(n % 3U));
+        (void)mesh_aos_start();   /* while the end may still be on its way: either may be last */
+        TEST_ASSERT_TRUE(h_bg_join(&ender, 3000U));
+        /* The end last: not running, and a start now takes it up. The start last: running, and
+         * the module is looked for without another start - never "running" and not looking. */
+        if (!mesh_aos_running()) {
+            TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_start());
+        }
+        TEST_ASSERT_EQUAL_MESSAGE(KODE_OK, mesh_aos_wait_present(5000U), "started, but the module is not looked for");
+    }
+    TEST_ASSERT_EQUAL(KODE_OK, h_begin(MESH_PLAN_BAND_SUB_GHZ, 9U, 400));
+}
+
+/** @brief The owner held inside a send it was posted, so that what is posted next waits behind it. */
+static void owner_held(void)
+{
+    static const uint8_t d[4] = { 1, 2, 3, 4 };
+    const mesh_aos_request_t send = { .kind = MESH_REQUEST_RADIO_SEND, .data = d, .len = sizeof(d) };
+
+    lr_fake_gate(LR_GATE_SEND);
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_post(&send));
+    TEST_ASSERT_TRUE(WAIT_FOR(g_lr.blocked, 1000));
+}
+
+TEST_CASE("end: posted, then a start at once, as an Active Object does them: the start holds", "[owner][end]")
+{
+    harness_fresh();
+    owner_held();
+
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_end_post());   /* mesh_sys_end() */
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_start());      /* mesh_sys_begin(), before the end is served */
+    lr_fake_release();
+
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_wait_present(5000U));
+    TEST_ASSERT_TRUE(mesh_aos_running());
+    TEST_ASSERT_EQUAL(KODE_OK, h_begin(MESH_PLAN_BAND_SUB_GHZ, 9U, 400));
+}
+
+TEST_CASE("end: two posted, then a start: the start is last, and the owner says it runs", "[owner][end]")
+{
+    harness_fresh();
+    owner_held();
+
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_end_post());
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_end_post());
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_start());
+    lr_fake_release();
+
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_wait_present(5000U));
+    TEST_ASSERT_TRUE(mesh_aos_running());
+    TEST_ASSERT_EQUAL(KODE_OK, h_begin(MESH_PLAN_BAND_SUB_GHZ, 9U, 400));
+
+    /* and an end now lets go for real: the supply off, the module no longer held */
+    unsigned const off = g_exp.power_off_calls;
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_end());
+    TEST_ASSERT_EQUAL_UINT(off + 1U, g_exp.power_off_calls);
+    TEST_ASSERT_FALSE(mesh_aos_running());
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_start());
+    TEST_ASSERT_EQUAL(KODE_OK, mesh_aos_wait_present(5000U));
+}
+
+TEST_CASE("start: the owner's own request is not the app's to make", "[owner][end]")
+{
+    harness_fresh();
+    const mesh_aos_request_t start = { .kind = MESH_REQUEST_START };
+    h_answer_t to;
+
+    TEST_ASSERT_EQUAL(KODE_DENIED, mesh_aos_post(&start));
+    TEST_ASSERT_EQUAL_UINT(MESH_WHY_BAD_ARGUMENT, mesh_aos_why());
+    TEST_ASSERT_EQUAL(KODE_DENIED, mesh_aos_call(&start, 1000U, NULL, NULL));
+    TEST_ASSERT_EQUAL_UINT(MESH_WHY_BAD_ARGUMENT, mesh_aos_why());
+    TEST_ASSERT_EQUAL(KODE_DENIED, h_ask(&start, &to));
+    TEST_ASSERT_TRUE(h_status().present);   /* and nothing was started over */
+}

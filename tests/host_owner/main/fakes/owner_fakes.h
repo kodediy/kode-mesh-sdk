@@ -155,6 +155,7 @@ typedef struct {
     volatile unsigned power_on_calls;    /**< kode_sys_exp_power(true)                   */
     volatile unsigned power_off_calls;
     volatile kode_status_t power_rc;     /**< what kode_sys_exp_power() answers          */
+    void (*volatile power_hook)(bool on); /**< called inside kode_sys_exp_power(), on the caller's task */
     volatile bool     spi_refused;       /**< kode_sys_exp_ctrl(KODE_SYS_EXP_SPI) has none free  */
     volatile bool     uart_refused;      /**< the same for the UART                  */
     volatile uint8_t  spi_id;            /**< the SPI controller it hands out        */
