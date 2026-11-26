@@ -356,8 +356,10 @@ kode_status_t mesh_sys_radio_standby(void);
 kode_status_t mesh_sys_radio_receive(bool on);
 
 /**
- * @brief Listen for a time, then stop: MESH_LISTEN_ENDED_SIG when it is over, and each packet
- *        heard is MESH_PACKET_RECEIVED_SIG.
+ * @brief Listen for one packet, for a time at most, then stop: the packet heard is
+ *        MESH_PACKET_RECEIVED_SIG, and MESH_LISTEN_ENDED_SIG says the listen is over, right after
+ *        the packet or when the time is up with none. A packet that comes in bad ends it too. A
+ *        listen the app cuts short itself (a send, the receiver, a standby, a stop) ends with no signal.
  * @param ms How long, 1 to MESH_LISTEN_MS_MAX.
  * @return As the commands' rule above; KODE_DENIED also for @p ms out of range.
  */

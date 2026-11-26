@@ -541,8 +541,10 @@ bool mesh_radio_cad(uint8_t symbols, bool fast, bool *detected);
 bool mesh_radio_cad_receive(uint8_t symbols, bool fast, bool *detected);
 
 /**
- * @brief Listen for a time, then stop: the event listen_ended when it is over, and each packet heard is the
- *        event packet_received.
+ * @brief Listen for one packet, for a time at most, then stop: the packet heard is the event
+ *        packet_received, and the event listen_ended says the listen is over, right after the packet
+ *        or when the time is up with none. A packet that comes in bad ends it too. A listen you cut
+ *        short yourself (a send, mesh_radio_receive(), a standby, mesh_stop()) ends with no event.
  *
  * Blocks until the chip has begun, not until the time is up.
  * @param ms How long, 1 to MESH_LISTEN_MS_MAX.

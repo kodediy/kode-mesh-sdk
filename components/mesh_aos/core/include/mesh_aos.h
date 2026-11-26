@@ -90,7 +90,7 @@ typedef enum {
                             *   airtime, ms), or refused (out1: the wait, ms, when the duty
                             *   budget has no room).                              */
     MESH_REQUEST_RADIO_RECEIVE,       /**< u: 1 receive on, 0 off.                        */
-    MESH_REQUEST_RADIO_LISTEN,        /**< u: ms to receive, then the chip's timer ends it. */
+    MESH_REQUEST_RADIO_LISTEN,        /**< u: ms to receive one packet; it or the chip's timer ends it. */
     MESH_REQUEST_RADIO_TEST,       /**< u: a mesh_drv_lr2021_test_t (0 stops one), i: how
                             *   long, ms, 1..MESH_BSP_TEST_MAX_MS. Refused when
                             *   a packet or a test is on air already.          */

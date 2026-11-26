@@ -1112,6 +1112,14 @@ static void radio_cad_done(void)
     }
 }
 
+/** @brief A timed listen is over: the app told, once. */
+static void listen_over(void)
+{
+    s.listening = false;
+    publish();
+    emit((uint8_t)MESH_AOS_EVENT_LISTEN_END, 0U);
+}
+
 /** @brief Read the packet the chip just received into the ring. */
 static void radio_rx_done(uint32_t irq)
 {
@@ -1168,9 +1176,7 @@ static void radio_timeout(void)
             receiver_lost();
         }
     } else if (s.listening) {
-        s.listening = false;
-        publish();
-        emit((uint8_t)MESH_AOS_EVENT_LISTEN_END, 0U);
+        listen_over();
     } else {
         /* a timer nothing was waiting on */
     }
@@ -1301,6 +1307,14 @@ static void radio_irq(uint32_t f)
     } else {
         /* no packet */
     }
+    if (s.listening && ((f & (MESH_DRV_LR2021_INTERRUPT_RECEIVE_DONE | MESH_DRV_LR2021_INTERRUPT_CRC_ERROR
+                              | MESH_DRV_LR2021_INTERRUPT_HEADER_ERROR)) != 0U)) {
+        /* A timed listen is a single receive: the chip falls back after its packet, good or
+         * bad, as after a search's. Left on, a search, a calibration or a retune would be refused
+         * as busy, and listen_ended would wait for the listen's whole time. */
+        (void)radio_off();   /* sure that nothing is left in Rx; a failure resets the chip and says so */
+        listen_over();
+    }
     if ((f & MESH_DRV_LR2021_INTERRUPT_SEND_DONE) != 0U) {
         radio_tx_done();
     }
@@ -1395,9 +1409,8 @@ static void radio_tick(uint32_t dt)
         test_deadline();
     }
     if (s.listening && (s.listen_left_ms == 0U)) {
-        s.listening = false;
-        publish();
-        emit((uint8_t)MESH_AOS_EVENT_LISTEN_END, 0U);
+        (void)radio_off();   /* its timer flag was missed: the chip is not left in Rx either */
+        listen_over();
     }
     if (s.arriving && (s.arriving_left_ms == 0U)) {
         s.arriving = false;   /* nothing came of it */
